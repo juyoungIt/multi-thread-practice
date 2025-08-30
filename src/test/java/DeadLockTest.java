@@ -31,11 +31,9 @@ public class DeadLockTest {
     @DisplayName("Deadlock : 2개의 Thread가 서로의 자원을 기다리면서 Deadlock 이 발생한다")
     void deadlockTest() {
         // 실행시간이 3초가 넘어가는 경우 자동으로 종료하고 실패처리함
-        // -> 간단한 출력이기 때문에 deadlock이 발생하지 않는 이상 실행시간이 3초가 넘어갈 수 없음
         assertTimeoutPreemptively(Duration.ofSeconds(3), () -> {
 
-            // 첫번째 Thread
-            // -> resource1을 먼저 획득한 뒤, resource2 획득을 시도함
+            // 첫번째 Thread -> resource1을 먼저 획득한 뒤, resource2 획득을 시도함
             Thread thread1 = new Thread(() -> {
                 synchronized (resource1) {
                     System.out.println("Thread1: resource1 획득");
@@ -44,6 +42,7 @@ public class DeadLockTest {
                         System.out.println("Thread1: resource2 획득시도...");
                         synchronized (resource2) {
                             System.out.println("Thread1: resource2 획득");
+                            System.out.println("Thread1: 작업완료");
                         }
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -51,8 +50,7 @@ public class DeadLockTest {
                 }
             }, "Thread1");
 
-            // 두번째 Thread
-            // -> resource2을 먼저 획득한 뒤, resource1 획득을 시도함
+            // 두번째 Thread -> resource2을 먼저 획득한 뒤, resource1 획득을 시도함
             Thread thread2 = new Thread(() -> {
                 synchronized (resource2) {
                     System.out.println("Thread2: resource2 획득");
@@ -61,6 +59,7 @@ public class DeadLockTest {
                         System.out.println("Thread2: resource1 획득시도...");
                         synchronized (resource1) {
                             System.out.println("Thread2: resource1 획득");
+                            System.out.println("Thread2: 작업완료");
                         }
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -96,6 +95,7 @@ public class DeadLockTest {
                         System.out.println("Thread1: resource2 획득시도...");
                         synchronized (resource2) {
                             System.out.println("Thread1: resource2 획득");
+                            System.out.println("Thread1: 작업완료");
                         }
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -112,6 +112,7 @@ public class DeadLockTest {
                         System.out.println("Thread2: resource2 획득시도...");
                         synchronized (resource2) {
                             System.out.println("Thread2: resource2 획득");
+                            System.out.println("Thread2: 작업완료");
                         }
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -144,7 +145,7 @@ public class DeadLockTest {
                 try {
                     startGate.await();
                     acquireBoth(resource3, resource4, "Thread1");
-                    System.out.println("Thread1 - 작업완료");
+                    System.out.println("Thread1: 작업완료");
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
@@ -154,7 +155,7 @@ public class DeadLockTest {
                 try {
                     startGate.await();
                     acquireBoth(resource4, resource3, "Thread2");
-                    System.out.println("Thread2 - 작업완료");
+                    System.out.println("Thread2: 작업완료");
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
