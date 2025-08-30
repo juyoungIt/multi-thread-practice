@@ -36,7 +36,7 @@ public class DeadLockTest {
                 synchronized (resource1) {
                     System.out.println("Thread1: T1 acquired lock1");
                     try {
-                        startGate.await();
+                        startGate.await(); // resource1을 획득한 후, 다른 스레드가 resource2를 획득할 때까지 대기
                         System.out.println("Thread1: T1 trying lock2...");
                         synchronized (resource2) {
                             System.out.println("Thread1: T1 acquired lock2");
@@ -53,7 +53,7 @@ public class DeadLockTest {
                 synchronized (resource2) {
                     System.out.println("Thread2: T2 acquired lock2");
                     try {
-                        startGate.await();
+                        startGate.await(); // resource2를 획득한 후, 다른 스레드가 resource1을 획득할 때까지 대기
                         System.out.println("Thread2: T2 trying lock1...");
                         synchronized (resource1) {
                             System.out.println("Thread2: T2 acquired lock1");
@@ -66,7 +66,7 @@ public class DeadLockTest {
 
             thread1.start();
             thread2.start();
-            startGate.countDown();
+            startGate.countDown(); // 2개의 스레드를 동시에 실행
 
             // 최대 1초 동안 DeadlockProbe로 교착 탐지 폴링
             List<String> deadlockedNames = checkDeadlock(1000);
