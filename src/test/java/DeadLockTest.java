@@ -34,12 +34,12 @@ public class DeadLockTest {
             // -> resource1을 먼저 획득한 뒤, resource2 획득을 시도함
             Thread thread1 = new Thread(() -> {
                 synchronized (resource1) {
-                    System.out.println("Thread1: T1 acquired lock1");
+                    System.out.println("Thread1: resource1 획득");
                     try {
                         startGate.await(); // resource1을 획득한 후, 다른 스레드가 resource2를 획득할 때까지 대기
-                        System.out.println("Thread1: T1 trying lock2...");
+                        System.out.println("Thread1: resource2 획득시도...");
                         synchronized (resource2) {
-                            System.out.println("Thread1: T1 acquired lock2");
+                            System.out.println("Thread1: resource2 획득");
                         }
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -51,12 +51,12 @@ public class DeadLockTest {
             // -> resource2을 먼저 획득한 뒤, resource1 획득을 시도함
             Thread thread2 = new Thread(() -> {
                 synchronized (resource2) {
-                    System.out.println("Thread2: T2 acquired lock2");
+                    System.out.println("Thread2: resource2 획득");
                     try {
                         startGate.await(); // resource2를 획득한 후, 다른 스레드가 resource1을 획득할 때까지 대기
-                        System.out.println("Thread2: T2 trying lock1...");
+                        System.out.println("Thread2: resource1 획득시도...");
                         synchronized (resource1) {
-                            System.out.println("Thread2: T2 acquired lock1");
+                            System.out.println("Thread2: resource1 획득");
                         }
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
