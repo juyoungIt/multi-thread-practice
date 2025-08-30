@@ -6,6 +6,8 @@ import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
@@ -16,6 +18,8 @@ public class DeadLockTest {
     private static final Object resource1 = new Object();
     private static final Object resource2 = new Object();
     CountDownLatch startGate;
+    private static final ReentrantLock resource3 = new ReentrantLock();
+    private static final ReentrantLock resource4 = new ReentrantLock();
 
     @BeforeEach
     void init() {
@@ -69,7 +73,10 @@ public class DeadLockTest {
             startGate.countDown(); // 2개의 스레드를 동시에 실행
 
             // 최대 1초 동안 DeadlockProbe로 교착 탐지 폴링
-            List<String> deadlockedNames = checkDeadlock(1000);
+            Set<Long> threadIds = new HashSet<>();
+            threadIds.add(thread1.getId());
+            threadIds.add(thread2.getId());
+            List<String> deadlockedNames = checkDeadlock(1000, threadIds);
             // 데드락에 걸린 스레드들을 검증
             assertThat(deadlockedNames).containsExactlyInAnyOrder("Thread1", "Thread2");
         });
@@ -115,9 +122,56 @@ public class DeadLockTest {
             thread1.start();
             thread2.start();
             startGate.countDown(); // 2개의 스레드를 동시에 실행
+            thread1.join();
+            thread2.join();
 
             // 최대 1초 동안 DeadlockProbe로 교착 탐지 폴링
-            List<String> deadlockedNames = checkDeadlock(1000);
+            Set<Long> threadIds = new HashSet<>();
+            threadIds.add(thread1.getId());
+            threadIds.add(thread2.getId());
+            List<String> deadlockedNames = checkDeadlock(1000, threadIds);
+            // Deadlock이 발생하지 않는다
+            assertThat(deadlockedNames).isEmpty();
+        });
+    }
+
+    @Test
+    @DisplayName("Deadlock 해결2: (예방) 비선점(Non-preemption)을 제거")
+    void resolveDeadlockByRemoveNonPreemptionTest() {
+        assertTimeoutPreemptively(Duration.ofSeconds(3), () -> {
+
+            Thread thread1 = new Thread(() -> {
+                try {
+                    startGate.await();
+                    acquireBoth(resource3, resource4, "Thread1");
+                    System.out.println("Thread1 - 작업완료");
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }, "Thread1");
+
+            Thread thread2 = new Thread(() -> {
+                try {
+                    startGate.await();
+                    acquireBoth(resource4, resource3, "Thread2");
+                    System.out.println("Thread2 - 작업완료");
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }, "Thread2");
+
+            thread1.start();
+            thread2.start();
+            startGate.countDown(); // 동시에 시작
+
+            thread1.join();
+            thread2.join();
+
+            // 최대 1초 동안 DeadlockProbe로 교착 탐지 폴링
+            Set<Long> threadIds = new HashSet<>();
+            threadIds.add(thread1.getId());
+            threadIds.add(thread2.getId());
+            List<String> deadlockedNames = checkDeadlock(1000, threadIds);
             // Deadlock이 발생하지 않는다
             assertThat(deadlockedNames).isEmpty();
         });
@@ -127,7 +181,7 @@ public class DeadLockTest {
      * 데드락 여부를 감지하여, Deadlock이 발생한 Thread의 이름을 List 형태로 반환
      * @param timeoutMillis : 해당 시간동안 Polling 을 통해 Deadlock 발생여부를 감지
      */
-    public static List<String> checkDeadlock(long timeoutMillis) throws InterruptedException {
+    public static List<String> checkDeadlock(long timeoutMillis, Set<Long> threadIds) throws InterruptedException {
         long end = System.currentTimeMillis() + timeoutMillis;
         while (System.currentTimeMillis() < end) {
             long[] ids = ManagementFactory.getThreadMXBean().findDeadlockedThreads(); // deadlock 미검출 시 null 반환
@@ -135,6 +189,7 @@ public class DeadLockTest {
                 // 현재 실행 상태인 Thread ID, 이름 정보를 수집하여 Map으로 구성
                 Map<Long, String> threadNameMap = new HashMap<>();
                 for (Thread t : Thread.getAllStackTraces().keySet()) {
+                    if (!threadIds.contains(t.getId())) continue;
                     threadNameMap.put(t.getId(), t.getName());
                 }
                 // 현재 Deadlock 상태에 빠진 Thread만 이름을 조회하여 List 로 구성
@@ -148,6 +203,49 @@ public class DeadLockTest {
             Thread.sleep(10); // 10ms 대기 후 해당 과정을 다시 반복
         }
         return Collections.emptyList(); // deadlock이 감지되지 않은 경우 빈 list 를 반환
+    }
+
+    private void acquireBoth(ReentrantLock first, ReentrantLock second, String name) {
+        Random random = new Random();
+        for (;;) {
+            first.lock();
+            System.out.println(name + ": " + lockName(first) + " 획득");
+            try {
+                int tryLockTime = 100 + random.nextInt(100); // 서로 자원을 양보하는 상황을 예방하기 위해 random 값 사용
+                if (second.tryLock(tryLockTime, TimeUnit.MILLISECONDS)) {
+                    try {
+                        System.out.println(name + ": " + lockName(second) + " 획득");
+                        return; // 성공했으니 종료 (두 락 모두 해제 후)
+                    } finally {
+                        second.unlock();
+                        System.out.println(name + ": " + lockName(second) + " 반납");
+                    }
+                } else {
+                    System.out.println(name + ": " + lockName(second) + " 대기시간 초과 → " + lockName(first) + " 반납 후 재시도");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            } finally {
+                // 성공/실패와 무관하게 항상 first를 해제
+                if (first.isHeldByCurrentThread()) {
+                    first.unlock();
+                    System.out.println(name + ": " + lockName(first) + " 반납");
+                }
+            }
+
+            // 과도한 바쁘게 돌기 방지(경합 완화)
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private String lockName(ReentrantLock lock) {
+        return (lock == resource3) ? "resource3" : "resource4";
     }
 
 }
