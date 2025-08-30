@@ -75,6 +75,54 @@ public class DeadLockTest {
         });
     }
 
+    @Test
+    @DisplayName("Deadlock 해결1: (예방) 자원에 번호를 붙이고 일관된 방향으로 할당하여 원형 대기(Circular Wait)을 제거")
+    void resolveDeadlockByRemoveCircularWaitTest() {
+        assertTimeoutPreemptively(Duration.ofSeconds(3), () -> {
+
+            // 첫번째 Thread -> resource1을 먼저 획득한 뒤, resource2 획득을 시도함
+            Thread thread1 = new Thread(() -> {
+                synchronized (resource1) {
+                    System.out.println("Thread1: resource1 획득");
+                    try {
+                        startGate.await();
+                        System.out.println("Thread1: resource2 획득시도...");
+                        synchronized (resource2) {
+                            System.out.println("Thread1: resource2 획득");
+                        }
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            }, "Thread1");
+
+            // 두번째 Thread -> resource1을 먼저 획득한 뒤, resource2 획득을 시도함
+            Thread thread2 = new Thread(() -> {
+                synchronized (resource1) {
+                    System.out.println("Thread2: resource1 획득");
+                    try {
+                        startGate.await();
+                        System.out.println("Thread2: resource2 획득시도...");
+                        synchronized (resource2) {
+                            System.out.println("Thread2: resource2 획득");
+                        }
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            }, "Thread2");
+
+            thread1.start();
+            thread2.start();
+            startGate.countDown(); // 2개의 스레드를 동시에 실행
+
+            // 최대 1초 동안 DeadlockProbe로 교착 탐지 폴링
+            List<String> deadlockedNames = checkDeadlock(1000);
+            // Deadlock이 발생하지 않는다
+            assertThat(deadlockedNames).isEmpty();
+        });
+    }
+
     /**
      * 데드락 여부를 감지하여, Deadlock이 발생한 Thread의 이름을 List 형태로 반환
      * @param timeoutMillis : 해당 시간동안 Polling 을 통해 Deadlock 발생여부를 감지
