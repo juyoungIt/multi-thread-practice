@@ -15,70 +15,70 @@ import static org.assertj.core.api.Assertions.*;
 
 public class DeadLockTest {
 
-    private static final Object resource1 = new Object();
-    private static final Object resource2 = new Object();
+    // synchronized block 에서 사용하기 위한 동기화 대상 (deadlock 예시에서 점유할 자원을 의미)
+    final Object resource1 = new Object();
+    final Object resource2 = new Object();
+    // synchronized 보다 lock을 더 정교하게 제어하기 위해 선언 (deadlock 예시에서 점유할 자원을 의미)
+    final ReentrantLock resource3 = new ReentrantLock();
+    final ReentrantLock resource4 = new ReentrantLock();
+    // 2개의 Thread 를 서로 동시에 실행하기 위함
     CountDownLatch startGate;
-    private static final ReentrantLock resource3 = new ReentrantLock();
-    private static final ReentrantLock resource4 = new ReentrantLock();
 
     @BeforeEach
     void init() {
-        // 2개의 스레드를 서로 동시에 실행하기 위함
         startGate = new CountDownLatch(1);
     }
 
     @Test
     @DisplayName("Deadlock : 2개의 Thread가 서로의 자원을 기다리면서 Deadlock 이 발생한다")
-    void deadlockTest() {
-        // 실행시간이 3초가 넘어가는 경우 자동으로 종료하고 실패처리함
-        assertTimeoutPreemptively(Duration.ofSeconds(3), () -> {
-
-            // 첫번째 Thread -> resource1을 먼저 획득한 뒤, resource2 획득을 시도함
-            Thread thread1 = new Thread(() -> {
-                synchronized (resource1) {
-                    System.out.println("Thread1: resource1 획득");
-                    try {
-                        startGate.await(); // resource1을 획득한 후, 다른 스레드가 resource2를 획득할 때까지 대기
-                        System.out.println("Thread1: resource2 획득시도...");
-                        synchronized (resource2) {
-                            System.out.println("Thread1: resource2 획득");
-                            System.out.println("Thread1: 작업완료");
-                        }
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
+    void deadlockTest() throws InterruptedException {
+        // 첫번째 Thread -> resource1을 먼저 획득한 뒤, resource2 획득을 시도함
+        Thread thread1 = new Thread(() -> {
+            synchronized (resource1) {
+                System.out.println("Thread1: resource1 획득");
+                try {
+                    startGate.await(); // resource1을 획득한 후, 다른 스레드가 resource2를 획득할 때까지 대기
+                    System.out.println("Thread1: resource2 획득시도...");
+                    synchronized (resource2) {
+                        System.out.println("Thread1: resource2 획득");
+                        System.out.println("Thread1: 작업완료");
                     }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
-            }, "Thread1");
+            }
+        }, "Thread1");
 
-            // 두번째 Thread -> resource2을 먼저 획득한 뒤, resource1 획득을 시도함
-            Thread thread2 = new Thread(() -> {
-                synchronized (resource2) {
-                    System.out.println("Thread2: resource2 획득");
-                    try {
-                        startGate.await(); // resource2를 획득한 후, 다른 스레드가 resource1을 획득할 때까지 대기
-                        System.out.println("Thread2: resource1 획득시도...");
-                        synchronized (resource1) {
-                            System.out.println("Thread2: resource1 획득");
-                            System.out.println("Thread2: 작업완료");
-                        }
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
+        // 두번째 Thread -> resource2을 먼저 획득한 뒤, resource1 획득을 시도함
+        Thread thread2 = new Thread(() -> {
+            synchronized (resource2) {
+                System.out.println("Thread2: resource2 획득");
+                try {
+                    startGate.await(); // resource2를 획득한 후, 다른 스레드가 resource1을 획득할 때까지 대기
+                    System.out.println("Thread2: resource1 획득시도...");
+                    synchronized (resource1) {
+                        System.out.println("Thread2: resource1 획득");
+                        System.out.println("Thread2: 작업완료");
                     }
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
-            }, "Thread2");
+            }
+        }, "Thread2");
 
-            thread1.start();
-            thread2.start();
-            startGate.countDown(); // 2개의 스레드를 동시에 실행
+        thread1.start();
+        thread2.start();
+        startGate.countDown(); // 2개의 스레드를 동시에 실행
+        // thread1.join(); // 의도적으로 deadlock을 만드는 상황이므로 주석처리(1)
+        // thread2.join(); // 의도적으로 deadlock을 만드는 상황이므로 주석처리(2)
 
-            // 최대 1초 동안 DeadlockProbe로 교착 탐지 폴링
-            Set<Long> threadIds = new HashSet<>();
-            threadIds.add(thread1.getId());
-            threadIds.add(thread2.getId());
-            List<String> deadlockedNames = checkDeadlock(1000, threadIds);
-            // 데드락에 걸린 스레드들을 검증
-            assertThat(deadlockedNames).containsExactlyInAnyOrder("Thread1", "Thread2");
-        });
+        // 최대 1초 동안 Deadlock 상태 조사 Polling
+        Set<Long> threadIds = new HashSet<>();
+        threadIds.add(thread1.getId());
+        threadIds.add(thread2.getId());
+        List<String> deadlockedNames = checkDeadlock(1000, threadIds);
+        // Deadlock에 걸린 스레드들을 검증
+        assertThat(deadlockedNames).containsExactlyInAnyOrder("Thread1", "Thread2");
     }
 
     @Test
@@ -126,7 +126,7 @@ public class DeadLockTest {
             thread1.join();
             thread2.join();
 
-            // 최대 1초 동안 DeadlockProbe로 교착 탐지 폴링
+            // 최대 1초 동안 Deadlock 상태 조사 Polling
             Set<Long> threadIds = new HashSet<>();
             threadIds.add(thread1.getId());
             threadIds.add(thread2.getId());
@@ -144,8 +144,7 @@ public class DeadLockTest {
             Thread thread1 = new Thread(() -> {
                 try {
                     startGate.await();
-                    acquireBoth(resource3, resource4, "Thread1");
-                    System.out.println("Thread1: 작업완료");
+                    tryRun(resource3, resource4, "Thread1");
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
@@ -154,8 +153,7 @@ public class DeadLockTest {
             Thread thread2 = new Thread(() -> {
                 try {
                     startGate.await();
-                    acquireBoth(resource4, resource3, "Thread2");
-                    System.out.println("Thread2: 작업완료");
+                    tryRun(resource4, resource3, "Thread2");
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
@@ -168,7 +166,7 @@ public class DeadLockTest {
             thread1.join();
             thread2.join();
 
-            // 최대 1초 동안 DeadlockProbe로 교착 탐지 폴링
+            // 최대 1초 동안 Deadlock 상태 조사 Polling
             Set<Long> threadIds = new HashSet<>();
             threadIds.add(thread1.getId());
             threadIds.add(thread2.getId());
@@ -206,23 +204,38 @@ public class DeadLockTest {
         return Collections.emptyList(); // deadlock이 감지되지 않은 경우 빈 list 를 반환
     }
 
-    private void acquireBoth(ReentrantLock first, ReentrantLock second, String name) {
+    /**
+     * 점유해야할 2개의 자원을 인자로 받아 자원 상태에 따라 자원을 가져오거나 다시 반환함
+     * @param first : 점유해야할 첫번째 자원
+     * @param second : 점유해야할 두번째 자원
+     * @param threadName : 실행을 시도하는 Thread 이름
+     */
+    private void tryRun(ReentrantLock first, ReentrantLock second, String threadName) {
         Random random = new Random();
-        for (;;) {
+        while (true) {
+            // 첫번째 자원에 대한 lock을 획득함
             first.lock();
-            System.out.println(name + ": " + lockName(first) + " 획득");
+            System.out.printf("%s: %s 획득\n", threadName, getResourceName(first));
             try {
-                int tryLockTime = 100 + random.nextInt(100); // 서로 자원을 양보하는 상황을 예방하기 위해 random 값 사용
+                // 2개의 Thread가 서로 자원을 양보하는 상황을 완화하기 위해 random 값 사용
+                int tryLockTime = 100 + random.nextInt(100);
                 if (second.tryLock(tryLockTime, TimeUnit.MILLISECONDS)) {
                     try {
-                        System.out.println(name + ": " + lockName(second) + " 획득");
-                        return; // 성공했으니 종료 (두 락 모두 해제 후)
+                        System.out.printf("%s: %s 획득\n", threadName, getResourceName(second));
+                        System.out.printf("%s: 작업완료\n", threadName);
+                        return; // 성공했으니 종료 (점유한 2개의 자원을 모두 반환) - finally 블록
                     } finally {
                         second.unlock();
-                        System.out.println(name + ": " + lockName(second) + " 반납");
+                        System.out.printf("%s: %s 반납\n", threadName, getResourceName(second));
                     }
                 } else {
-                    System.out.println(name + ": " + lockName(second) + " 대기시간 초과 → " + lockName(first) + " 반납 후 재시도");
+                    // 대기시간 동안 자원의 lock을 획득하지 못한 경우 다른 스레드를 위해 보유한 first 자원을 반납 - finally 블록
+                    System.out.printf(
+                            "%s: %s 대기시간 초과 -> %s 반납 후 재시도\n",
+                            threadName,
+                            getResourceName(second),
+                            getResourceName(first)
+                    );
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -230,12 +243,11 @@ public class DeadLockTest {
             } finally {
                 // 성공/실패와 무관하게 항상 first를 해제
                 if (first.isHeldByCurrentThread()) {
-                    first.unlock();
-                    System.out.println(name + ": " + lockName(first) + " 반납");
+                    first.unlock(); // 획득했던 자원을 반납함
+                    System.out.printf("%s: %s 반납\n", threadName, getResourceName(first));
                 }
             }
-
-            // 과도한 바쁘게 돌기 방지(경합 완화)
+            // Thread 간의 경합이 과도하게 발생하는 것을 막기 위해 의도적으로 실행흐름을 지연
             try {
                 Thread.sleep(10);
             } catch (InterruptedException ignored) {
@@ -245,7 +257,7 @@ public class DeadLockTest {
         }
     }
 
-    private String lockName(ReentrantLock lock) {
+    private String getResourceName(ReentrantLock lock) {
         return (lock == resource3) ? "resource3" : "resource4";
     }
 
